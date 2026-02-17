@@ -11,13 +11,9 @@ TrustLensProject/
   README.md
 ```
 
-- Backend is in `server/` only.
-- Frontend is in `client/` only.
-- No Next.js API routes are used.
 
 ## Server (port 4000)
 
-Tech: Node, Express, TypeScript, Prisma, PostgreSQL, JWT, Helmet, rate limiting, Zod, CORS.
 
 ### Core endpoints
 
@@ -82,8 +78,6 @@ Tech: Node, Express, TypeScript, Prisma, PostgreSQL, JWT, Helmet, rate limiting,
 - `PATCH /api/admin/tickets/:id/assign`
 - `PATCH /api/admin/tickets/:id/priority`
 
-All admin/moderator mutation endpoints write `AdminAuditLog` records.
-
 ### Enterprise intelligence endpoints (ADMIN only)
 
 - `GET /api/admin/domain/:domain/history`
@@ -99,7 +93,7 @@ All admin/moderator mutation endpoints write `AdminAuditLog` records.
 - `GET /api/admin/export/ip/:ip?format=json|csv`
 - `GET /api/admin/export/key/:keyId?format=json|csv`
 
-`GET /api/stats` returns real DB counts:
+`GET /api/stats` returns:
 - `reports_24h`
 - `reports_7d`
 - `reports_30d`
@@ -116,15 +110,10 @@ All admin/moderator mutation endpoints write `AdminAuditLog` records.
 
 - `FREE`
 - `RESEARCH`
-- `BUSINESS` (hidden tier, admin-manageable)
 
 ## Client (port 3000)
 
-Next.js + TypeScript + Tailwind UI.
-
-- Hero with requested headline/subtext.
-- Live animated stats from `http://localhost:4000/api/stats`.
-- Education section with 15 long-form articles.
+- Live stats from `http://localhost:4000/api/stats`.
 - Navbar: Education, API, Status + Login/user area.
 - Dashboard: API usage graph + tickets.
 - Admin page: user list, API key limits, report moderation, ticket management.
@@ -158,37 +147,3 @@ Run apps in separate terminals:
 cd server && npm run dev
 cd client && npm run dev
 ```
-
-## Docker (Windows)
-
-From `C:\Users\maro\tlp\TrustLensProject`:
-
-```powershell
-docker compose up --build
-```
-
-Test:
-
-- Frontend: `http://localhost:3000`
-- Server health: `http://localhost:4000/health`
-- Live stats: `http://localhost:4000/api/stats`
-
-Useful commands:
-
-```powershell
-# stop containers
-docker compose down
-
-# stop and delete DB volume (full reset)
-docker compose down -v
-
-# view logs
-docker compose logs -f
-```
-
-## Notes
-
-- Default admin is created from `server/.env` (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) during seed.
-- Default moderator is created from `server/.env` (`MODERATOR_EMAIL`, `MODERATOR_PASSWORD`) during seed.
-- Client fetches backend directly via `http://localhost:4000`.
-- API keys are never returned in plaintext except at creation/regeneration.
