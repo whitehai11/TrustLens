@@ -1,0 +1,473 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+  SUPERADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum ApiPlan {
+  FREE
+  RESEARCH
+  BUSINESS
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_INFO
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TicketAuthorType {
+  USER
+  STAFF
+}
+
+enum IpRuleType {
+  BLOCK
+  ALLOW
+  RATE_LIMIT
+}
+
+enum AbuseKind {
+  KEY_SPIKE
+  IP_SPIKE
+  ERROR_RATE
+  DOMAIN_FLOOD
+  SUSPICIOUS_UA
+  MULTI_KEY_IP
+  DOMAIN_KEY_FANOUT
+  BURST_SCAN
+  DOMAIN_ENUMERATION
+  RISK_ESCALATION
+  ML_ANOMALY_SPIKE
+  ML_ENUMERATION
+  ML_ERROR_SHIFT
+}
+
+enum AbuseSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum DomainVerificationMethod {
+  DNS
+  HTTP
+}
+
+enum DomainVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  EXPIRED
+}
+
+enum DomainDisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  apiKeys          ApiKey[]
+  reports          DomainReport[]
+  tickets          Ticket[]
+  logs             ApiRequestLog[]
+  ticketMessages   TicketMessage[] @relation("TicketMessageAuthor")
+  auditActions     AdminAuditLog[] @relation("AdminAuditActor")
+  createdIpRules   IpRule[]        @relation("IpRuleCreator")
+  resolvedFlags    AbuseFlag[]     @relation("AbuseResolvedBy")
+  moderatedReports DomainReport[]  @relation("ReportModerator")
+  assignedTickets  Ticket[]        @relation("TicketAssignee")
+  incidentsCreated Incident[]      @relation("IncidentCreator")
+  incidentNotes    IncidentNote[]
+  ipActivities     IpActivity[]
+  domainFeedbacks  DomainFeedback[] @relation("FeedbackAuthor")
+  moderatedFeedbacks DomainFeedback[] @relation("FeedbackModerator")
+  feedbackVotes    FeedbackVote[]
+  domainVerifications DomainVerification[]
+  domainDisputes   DomainDispute[]
+}
+
+model PlanLimit {
+  id             String   @id @default(cuid())
+  plan           ApiPlan  @unique
+  requestsPerDay Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model ApiKey {
+  id         String       @id @default(cuid())
+  userId     String
+  prefix     String
+  last4      String
+  hash       String       @unique
+  tier       ApiPlan      @default(FREE)
+  status     ApiKeyStatus @default(ACTIVE)
+  dailyLimit Int
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  lastUsedAt DateTime?
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs         ApiRequestLog[]
+  flags        AbuseFlag[]
+  ipActivities IpActivity[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model DomainCheck {
+  id              String   @id @default(cuid())
+  domain          String
+  score           Int
+  riskLevel       String
+  confidence      Float
+  riskFactors     Json
+  abuseSignals    Json
+  historicalTrend String
+  explanation     String
+  timestamp       DateTime @default(now())
+}
+
+model DomainHistory {
+  id            String   @id @default(cuid())
+  domain        String
+  score         Int
+  riskLevel     String
+  confidence    Float
+  factors       Json
+  abuseSignals  Json
+  createdAt     DateTime @default(now())
+  correlationId String?
+
+  @@index([domain, createdAt])
+}
+
+model DomainReport {
+  id               String           @id @default(cuid())
+  domain           String
+  reason           String
+  details          String
+  category         String           @default("other")
+  evidenceLink     String?
+  reporterEmail    String?
+  moderationStatus ModerationStatus @default(PENDING)
+  moderatedById    String?
+  moderatedAt      DateTime?
+  moderatorNote    String?
+  createdAt        DateTime         @default(now())
+  userId           String?
+
+  user        User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  moderatedBy User? @relation("ReportModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([moderationStatus, createdAt])
+}
+
+model Ticket {
+  id            String         @id @default(cuid())
+  subject       String
+  status        TicketStatus   @default(OPEN)
+  priority      TicketPriority @default(NORMAL)
+  assignedToId  String?
+  reporterEmail String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  userId        String?
+
+  user       User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  assignedTo User?           @relation("TicketAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages   TicketMessage[]
+
+  @@index([userId, status, createdAt])
+  @@index([assignedToId, status])
+}
+
+model TicketMessage {
+  id         String           @id @default(cuid())
+  ticketId   String
+  authorType TicketAuthorType
+  authorId   String?
+  body       String
+  createdAt  DateTime         @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User?  @relation("TicketMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+}
+
+model ApiRequestLog {
+  id            String   @id @default(cuid())
+  apiKeyId      String?
+  userId        String?
+  endpoint      String
+  method        String
+  domain        String?
+  ipAddress     String
+  userAgent     String?
+  statusCode    Int
+  durationMs    Int
+  riskLevel     String?
+  score         Int?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([apiKeyId, createdAt])
+  @@index([ipAddress, createdAt])
+  @@index([domain, createdAt])
+}
+
+model IpActivity {
+  id            String   @id @default(cuid())
+  ipAddress     String
+  domain        String?
+  apiKeyId      String?
+  userId        String?
+  endpoint      String
+  statusCode    Int
+  createdAt     DateTime @default(now())
+  correlationId String?
+
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([ipAddress, createdAt])
+  @@index([domain, createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
+model AdminAuditLog {
+  id            String   @id @default(cuid())
+  actorUserId   String?
+  action        String
+  targetType    String
+  targetId      String?
+  ipAddress     String
+  userAgent     String?
+  metadata      Json
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  actor User? @relation("AdminAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+}
+
+model IpRule {
+  id          String     @id @default(cuid())
+  type        IpRuleType
+  value       String
+  reason      String
+  createdById String
+  createdAt   DateTime   @default(now())
+  expiresAt   DateTime?
+  active      Boolean    @default(true)
+
+  createdBy User @relation("IpRuleCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([type, value, active])
+  @@index([expiresAt])
+}
+
+model AbuseFlag {
+  id            String        @id @default(cuid())
+  kind          AbuseKind
+  severity      AbuseSeverity
+  apiKeyId      String?
+  ipAddress     String?
+  details       Json
+  correlationId String?
+  createdAt     DateTime      @default(now())
+  resolvedAt    DateTime?
+  resolvedById  String?
+
+  apiKey     ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  resolvedBy User?   @relation("AbuseResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([kind, createdAt])
+  @@index([resolvedAt, createdAt])
+}
+
+model Incident {
+  id          String   @id @default(cuid())
+  title       String
+  severity    String
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  createdBy User?          @relation("IncidentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  links     IncidentLink[]
+  notes     IncidentNote[]
+
+  @@index([status, severity, createdAt])
+}
+
+model IncidentLink {
+  id         String @id @default(cuid())
+  incidentId String
+  type       String
+  targetId   String
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, type])
+  @@index([type, targetId])
+}
+
+model IncidentNote {
+  id         String   @id @default(cuid())
+  incidentId String
+  authorId   String?
+  body       String
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  author   User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, createdAt])
+}
+
+model DomainReputation {
+  domain          String   @id
+  reputationScore Int
+  riskLevel       String
+  confidence      Float
+  lastComputedAt  DateTime @default(now())
+  signals         Json
+  counts          Json
+  verifiedOwner   Boolean  @default(false)
+  verifiedAt      DateTime?
+}
+
+model DomainFeedback {
+  id            String           @id @default(cuid())
+  domain        String
+  userId        String?
+  email         String?
+  category      String
+  description   String
+  evidenceUrl   String?
+  reputationWeight Float @default(1.0)
+  status        ModerationStatus @default(PENDING)
+  createdAt     DateTime         @default(now())
+  moderatedById String?
+  moderatedAt   DateTime?
+  moderatorNote String?
+
+  user        User?         @relation("FeedbackAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  moderatedBy User?         @relation("FeedbackModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  votes       FeedbackVote[]
+
+  @@index([domain, createdAt])
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model TldStats {
+  tld           String   @id
+  totalDomains  Int      @default(0)
+  highRiskCount Int      @default(0)
+  criticalCount Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+model FeedbackVote {
+  id         String   @id @default(cuid())
+  feedbackId String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  feedback DomainFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([feedbackId, userId])
+  @@index([userId, createdAt])
+}
+
+model DomainVerification {
+  id             String                   @id @default(cuid())
+  domain         String
+  userId         String
+  challengeToken String
+  method         DomainVerificationMethod
+  status         DomainVerificationStatus @default(PENDING)
+  createdAt      DateTime                 @default(now())
+  verifiedAt     DateTime?
+  expiresAt      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([domain, userId, status, expiresAt])
+  @@index([domain, status, createdAt])
+}
+
+model DomainDispute {
+  id          String             @id @default(cuid())
+  domain      String
+  userId      String
+  reason      String
+  evidenceUrl String?
+  status      DomainDisputeStatus @default(OPEN)
+  adminNote   String?
+  createdAt   DateTime           @default(now())
+  resolvedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([domain, status, createdAt])
+  @@index([userId, createdAt])
+}
